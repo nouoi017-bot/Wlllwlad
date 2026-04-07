@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Walid Vault | خزنة وليد</title>
+    <style>
+        :root { --bg: #0a0c10; --card: #161b22; --border: #30363d; --accent: #58a6ff; --red: #f85149; --green: #3fb950; }
+        body { background: var(--bg); color: #c9d1d9; font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 15px; min-height: 100vh; }
+        .container { max-width: 800px; margin: 0 auto; display: none; animation: fadeIn 0.5s; }
+        .login-screen { height: 90vh; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+        input, textarea { background: #0d1117; border: 1px solid var(--border); color: white; padding: 12px; border-radius: 8px; margin: 10px 0; width: 100%; box-sizing: border-box; outline: none; }
+        button { background: #21262d; border: 1px solid var(--border); color: white; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        button:hover { background: #30363d; border-color: #8b949e; }
+        .nav { display: flex; gap: 10px; margin: 20px 0; }
+        .nav button { flex: 1; }
+        .active-tab { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 10px rgba(88,166,255,0.1); }
+        .upload-box { background: var(--card); border: 1px solid var(--border); padding: 20px; border-radius: 12px; margin-bottom: 25px; }
+        .file-card { background: var(--card); border: 1px solid var(--border); padding: 15px; border-radius: 12px; margin-bottom: 15px; position: relative; }
+        .file-card img { width: 100%; border-radius: 8px; margin-top: 10px; }
+        .time { font-size: 0.7rem; color: #8b949e; display: block; margin-bottom: 8px; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body>
+
+<div id="loginPage" class="login-screen">
+    <h1 style="color:var(--accent)">Vault 2007</h1>
+    <p>أدخل كود الوصول السري</p>
+    <input type="password" id="passInput" placeholder="••••••••">
+    <button onclick="login()">فتح الخزنة 🔑</button>
+</div>
+
+<div id="appPage" class="container">
+    <header style="display:flex; justify-content:space-between; align-items:center;">
+        <h2 id="viewTitle">🔴 القسم الخاص</h2>
+        <button onclick="location.reload()" style="color:var(--red)">خروج</button>
+    </header>
+
+    <div class="nav">
+        <button id="btnPriv" class="active-tab" onclick="switchTab('private')">الخاص</button>
+        <button id="btnPub" onclick="switchTab('public')">العام</button>
+    </div>
+
+    <div class="upload-box">
+        <input type="file" id="fileInp" style="display:none" onchange="uploadFile(this.files[0])">
+        <div style="display:flex; gap:10px;">
+            <button onclick="document.getElementById('fileInp').click()">🖼️ رفع صورة/ملف</button>
+            <p id="status" style="font-size:0.8rem;"></p>
+        </div>
+        <textarea id="noteInp" placeholder="اكتب ملاحظة أو الصق رابطاً هنا..." rows="2"></textarea>
+        <button onclick="saveNote()" style="width:100%; background:var(--accent); color:black;">حفظ النص سحابياً ☁️</button>
+    </div>
+
+    <div id="itemsList"></div>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getDatabase, ref as dbRef, push, set, onValue, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+    import { getStorage, ref as stRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyBp7kTNo3cnRNvwVz1g1PFkbwmCS_p3pPw",
+        authDomain: "walidlad-4af94.firebaseapp.com",
+        databaseURL: "https://walidlad-4af94-default-rtdb.firebaseio.com/",
+        projectId: "walidlad-4af94",
+        storageBucket: "walidlad-4af94.firebasestorage.app",
+        messagingSenderId: "793359158841",
+        appId: "1:793359158841:web:219894a5d544cd97f407e8"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const storage = getStorage(app);
+
+    let currentTab = 'private';
+    const SECRET_KEY = "wllwladwllwladwllwlad2007";
+
+    window.login = () => {
+        if(document.getElementById('passInput').value === SECRET_KEY) {
+            document.getElementById('loginPage').style.display = 'none';
+            document.getElementById('appPage').style.display = 'block';
+            loadData();
+        } else { alert("كود خاطئ!"); }
+    };
+
+    window.switchTab = (tab) => {
+        currentTab = tab;
+        document.getElementById('viewTitle').innerText = tab === 'private' ? '🔴 القسم الخاص' : '🟢 القسم العام';
+        document.getElementById('btnPriv').className = tab === 'private' ? 'active-tab' : '';
+        document.getElementById('btnPub').className = tab === 'public' ? 'active-tab' : '';
+        loadData();
+    };
+
+    window.uploadFile = async (file) => {
+        if(!file) return;
+        const status = document.getElementById('status');
+        status.innerText = "جاري الرفع... ⏳";
+        
+        try {
+            const storageRef = stRef(storage, `${currentTab}/${Date.now()}_${file.name}`);
+            const snapshot = await uploadBytes(storageRef, file);
+            const url = await getDownloadURL(snapshot.ref);
+
+            const dataRef = push(dbRef(db, 'vault/' + currentTab));
+            await set(dataRef, {
+                type: file.type.startsWith('image') ? 'img' : 'file',
+                name: file.name,
+                url: url,
+                time: serverTimestamp()
+            });
+            status.innerText = "✅ تمت الإضافة!";
+        } catch (e) {
+            status.innerText = "❌ فشل الرفع";
+            console.error(e);
+        }
+    };
+
+    window.saveNote = async () => {
+        const text = document.getElementById('noteInp').value;
+        if(!text) return;
+        const dataRef = push(dbRef(db, 'vault/' + currentTab));
+        await set(dataRef, {
+            type: 'note',
+            content: text,
+            time: serverTimestamp()
+        });
+        document.getElementById('noteInp').value = '';
+    };
+
+    function loadData() {
+        const dataRef = dbRef(db, 'vault/' + currentTab);
+        onValue(dataRef, (snapshot) => {
+            const list = document.getElementById('itemsList');
+            list.innerHTML = '';
+            const data = snapshot.val();
+            if(!data) { list.innerHTML = '<p style="text-align:center; opacity:0.5;">لا يوجد محتوى هنا بعد.</p>'; return; }
+            
+            Object.values(data).reverse().forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'file-card';
+                let html = `<span class="time">${item.time ? new Date(item.time).toLocaleString('ar-DZ') : ''}</span>`;
+                
+                if(item.type === 'img') html += `<img src="${item.url}"><br><a href="${item.url}" target="_blank" style="color:var(--accent); text-decoration:none; font-size:0.8rem;">📥 فتح الصورة</a>`;
+                else if(item.type === 'note') html += `<p style="margin:0; white-space: pre-wrap;">${item.content}</p>`;
+                else html += `📄 <strong>${item.name}</strong><br><a href="${item.url}" target="_blank" style="color:var(--accent); text-decoration:none; font-size:0.8rem;">📥 تحميل الملف</a>`;
+                
+                card.innerHTML = html;
+                list.appendChild(card);
+            });
+        });
+    }
+</script>
+</body>
+</html>
